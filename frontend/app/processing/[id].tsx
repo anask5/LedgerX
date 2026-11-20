@@ -1,37 +1,110 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Animated } from 'react-native';
-import { Text, ActivityIndicator } from 'react-native-paper';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+  ZoomIn,
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withSpring,
+  Easing,
+} from 'react-native-reanimated';
+import {
+  FileText,
+  Sparkles,
+  CheckCircle2,
+  Circle,
+  Loader2,
+  Clock,
+  ArrowRight,
+  AlertCircle,
+} from 'lucide-react-native';
 import { useReceipt } from '../../src/hooks/useReceipt';
-import { colors } from '../../src/theme';
 
 const TIMEOUT_MS = 60_000; // 60 seconds
+
+const OBSIDIAN = {
+  bg: '#09090B',
+  surface: '#121216',
+  surfaceElevated: '#18181E',
+  border: 'rgba(255, 255, 255, 0.08)',
+  textPrimary: '#FAFAFA',
+  textSecondary: '#A1A1AA',
+  textMuted: '#71717A',
+  emerald: '#10B981',
+  emeraldBg: 'rgba(16, 185, 129, 0.12)',
+  emeraldBorder: 'rgba(16, 185, 129, 0.28)',
+  cyan: '#06B6D4',
+  amber: '#F59E0B',
+  amberBg: 'rgba(245, 158, 11, 0.12)',
+};
+
+const PIPELINE_STEPS = [
+  { key: 'upload', label: 'Uploading receipt to vault', sub: 'Encrypted transfer complete' },
+  { key: 'vision', label: 'Analyzing image clarity', sub: 'Detecting merchant & layout' },
+  { key: 'extract', label: 'Extracting line items & totals', sub: 'Parsing dates & warranty terms' },
+  { key: 'ready', label: 'Preparing review summary', sub: 'Finalizing structured data' },
+];
 
 export default function ProcessingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { receipt, isError } = useReceipt(id);
   const [timedOut, setTimedOut] = useState(false);
-  const pulseAnim = useRef(new Animated.Value(0.3)).current;
+  const [elapsedSec, setElapsedSec] = useState(0);
 
-  // Pulse animation
+  // Reanimated shared values
+  const laserY = useSharedValue(-30);
+  const ringScale = useSharedValue(1);
+  const ringOpacity = useSharedValue(0.45);
+  const spinDeg = useSharedValue(0);
+
   useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0.3,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
+    laserY.value = withRepeat(
+      withSequence(
+        withTiming(30, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-30, { duration: 1200, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      true
     );
-    anim.start();
-    return () => anim.stop();
-  }, [pulseAnim]);
+
+    ringScale.value = withRepeat(
+      withSequence(
+        withTiming(1.18, { duration: 1400, easing: Easing.out(Easing.ease) }),
+        withTiming(1, { duration: 0 })
+      ),
+      -1,
+      false
+    );
+
+    ringOpacity.value = withRepeat(
+      withSequence(
+        withTiming(0, { duration: 1400, easing: Easing.out(Easing.ease) }),
+        withTiming(0.45, { duration: 0 })
+      ),
+      -1,
+      false
+    );
+
+    spinDeg.value = withRepeat(
+      withTiming(360, { duration: 1100, easing: Easing.linear }),
+      -1,
+      false
+    );
+  }, []);
+
+  // Live elapsed timer for progressive visual step feedback
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsedSec((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Timeout after 60s
   useEffect(() => {
@@ -45,130 +118,466 @@ export default function ProcessingScreen() {
   useEffect(() => {
     if (!receipt) return;
 
-    if (receipt.status === 'ready') {
-      router.replace(`/review/${id}`);
-    } else if (receipt.status === 'failed') {
+    if (receipt.status === 'ready' || receipt.status === 'failed') {
       router.replace(`/review/${id}`);
     }
   }, [receipt?.status, id]);
 
-  // Handle timeout → go to vault
+  // Handle timeout -> go to vault
   useEffect(() => {
     if (timedOut) {
       router.replace('/(tabs)/vault');
     }
   }, [timedOut]);
 
+  const laserStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: laserY.value }],
+  }));
+
+  const sonarStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: ringScale.value }],
+    opacity: ringOpacity.value,
+  }));
+
+  const spinnerStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${spinDeg.value}deg` }],
+  }));
+
+  // Compute active step index smoothly (0 = done, 1 = 0-3s, 2 = 3-8s, 3 = 8s+)
+  const isDone = receipt?.status === 'ready' || receipt?.status === 'failed';
+  const activeStepIndex = isDone
+    ? 4
+    : elapsedSec < 3
+    ? 1
+    : elapsedSec < 8
+    ? 2
+    : 3;
+
   return (
-    <View style={styles.container}>
-      <Animated.View style={[styles.iconContainer, { opacity: pulseAnim }]}>
-        <Text style={styles.icon}>🔍</Text>
-      </Animated.View>
+    <View style={styles.root}>
+      {/* Ambient Obsidian Glow */}
+      <LinearGradient
+        colors={['rgba(16, 185, 129, 0.24)', 'rgba(6, 182, 212, 0.07)', 'transparent']}
+        start={{ x: 0.2, y: 0 }}
+        end={{ x: 0.8, y: 1 }}
+        style={styles.topGlow}
+        pointerEvents="none"
+      />
+      <LinearGradient
+        colors={['transparent', 'rgba(16, 185, 129, 0.08)']}
+        style={styles.bottomGlow}
+        pointerEvents="none"
+      />
 
-      <ActivityIndicator size="large" color={colors.primary} style={styles.spinner} />
+      <View style={styles.responsiveContainer}>
+        <Animated.View
+          entering={FadeInUp.duration(550).springify().damping(17)}
+          style={styles.card}
+        >
+          {/* Animated Sonar + Laser Scanner Viewfinder */}
+          <View style={styles.scannerStage}>
+            <Animated.View style={[styles.sonarRing, sonarStyle]} />
 
-      <Text variant="headlineSmall" style={styles.title}>
-        Reading your receipt...
-      </Text>
-      <Text variant="bodyMedium" style={styles.subtitle}>
-        Our AI is extracting the details. This usually takes a few seconds.
-      </Text>
+            <LinearGradient
+              colors={['rgba(16, 185, 129, 0.45)', 'rgba(6, 182, 212, 0.22)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.scannerOuter}
+            >
+              <View style={styles.scannerInner}>
+                {/* Corner Reticle Brackets */}
+                <View style={[styles.corner, styles.cornerTL]} />
+                <View style={[styles.corner, styles.cornerTR]} />
+                <View style={[styles.corner, styles.cornerBL]} />
+                <View style={[styles.corner, styles.cornerBR]} />
 
-      <View style={styles.steps}>
-        <StepIndicator label="Uploading" done />
-        <StepIndicator label="Analyzing image" active />
-        <StepIndicator label="Extracting details" />
-        <StepIndicator label="Ready for review" />
+                <FileText size={38} color={OBSIDIAN.emerald} strokeWidth={1.7} />
+
+                {/* Sweeping Laser Beam */}
+                <Animated.View style={[styles.laserBeam, laserStyle]}>
+                  <LinearGradient
+                    colors={['transparent', '#10B981', '#06B6D4', '#10B981', 'transparent']}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={styles.laserLine}
+                  />
+                </Animated.View>
+              </View>
+            </LinearGradient>
+          </View>
+
+          {/* AI Status Pill */}
+          <Animated.View
+            entering={FadeInDown.delay(100).duration(450)}
+            style={styles.pillBadge}
+          >
+            <Sparkles size={12} color={OBSIDIAN.emerald} />
+            <Text style={styles.pillText}>GEMINI VISION OCR</Text>
+          </Animated.View>
+
+          <Text style={styles.title}>Reading your receipt…</Text>
+          <Text style={styles.subtitle}>
+            Extracting merchant details, line items, taxes, and warranty dates automatically.
+          </Text>
+
+          {isError && (
+            <View style={styles.warnBanner}>
+              <AlertCircle size={14} color={OBSIDIAN.amber} />
+              <Text style={styles.warnText}>
+                Still syncing with server—retrying automatically…
+              </Text>
+            </View>
+          )}
+
+          {/* Progressive Pipeline Steps */}
+          <View style={styles.stepsCard}>
+            {PIPELINE_STEPS.map((step, index) => {
+              const done = index < activeStepIndex;
+              const active = index === activeStepIndex;
+              const isLast = index === PIPELINE_STEPS.length - 1;
+
+              return (
+                <View key={step.key} style={styles.stepWrapper}>
+                  <View style={styles.stepRow}>
+                    <View style={styles.stepIconCol}>
+                      {done ? (
+                        <Animated.View entering={ZoomIn.duration(250)}>
+                          <CheckCircle2
+                            size={20}
+                            color={OBSIDIAN.emerald}
+                            strokeWidth={2.4}
+                          />
+                        </Animated.View>
+                      ) : active ? (
+                        <Animated.View style={spinnerStyle}>
+                          <Loader2
+                            size={20}
+                            color={OBSIDIAN.cyan}
+                            strokeWidth={2.4}
+                          />
+                        </Animated.View>
+                      ) : (
+                        <Circle
+                          size={20}
+                          color={OBSIDIAN.textMuted}
+                          strokeWidth={1.8}
+                        />
+                      )}
+                    </View>
+
+                    <View style={styles.stepTextCol}>
+                      <Text
+                        style={[
+                          styles.stepLabel,
+                          done && styles.stepLabelDone,
+                          active && styles.stepLabelActive,
+                        ]}
+                      >
+                        {step.label}
+                      </Text>
+                      {(done || active) && (
+                        <Text style={styles.stepSub}>{step.sub}</Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {!isLast && (
+                    <View
+                      style={[
+                        styles.connectorLine,
+                        done && { backgroundColor: 'rgba(16, 185, 129, 0.4)' },
+                      ]}
+                    />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Elapsed Time Footer */}
+          <View style={styles.footerRow}>
+            <View style={styles.timerPill}>
+              <Clock size={12} color={OBSIDIAN.textSecondary} />
+              <Text style={styles.timerText}>Elapsed: {elapsedSec}s</Text>
+            </View>
+
+            {elapsedSec >= 12 && (
+              <Pressable
+                onPress={() => router.replace('/(tabs)/vault')}
+                hitSlop={8}
+                style={styles.vaultSkipBtn}
+              >
+                <Text style={styles.vaultSkipText}>Process in background</Text>
+                <ArrowRight size={13} color={OBSIDIAN.emerald} />
+              </Pressable>
+            )}
+          </View>
+        </Animated.View>
       </View>
     </View>
   );
 }
 
-function StepIndicator({ label, done, active }: { label: string; done?: boolean; active?: boolean }) {
-  return (
-    <View style={styles.stepRow}>
-      <View
-        style={[
-          styles.stepDot,
-          done && styles.stepDotDone,
-          active && styles.stepDotActive,
-        ]}
-      />
-      <Text
-        variant="bodyMedium"
-        style={[
-          styles.stepLabel,
-          done && styles.stepLabelDone,
-          active && styles.stepLabelActive,
-        ]}
-      >
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: OBSIDIAN.bg,
     justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 28,
+  },
+  topGlow: {
+    position: 'absolute',
+    top: -80,
+    left: -60,
+    right: -60,
+    height: 360,
+    borderBottomLeftRadius: 200,
+    borderBottomRightRadius: 200,
+  },
+  bottomGlow: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 180,
+  },
+  responsiveContainer: {
+    width: '100%',
+    maxWidth: 460,
+    alignSelf: 'center',
+  },
+  card: {
+    backgroundColor: OBSIDIAN.surface,
+    borderRadius: 26,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: OBSIDIAN.border,
     alignItems: 'center',
-    padding: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.5,
+    shadowRadius: 30,
+    elevation: 14,
   },
-  iconContainer: {
-    marginBottom: 20,
+  /* Scanner Stage */
+  scannerStage: {
+    width: 112,
+    height: 112,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
-  icon: {
-    fontSize: 72,
+  sonarRing: {
+    position: 'absolute',
+    width: 98,
+    height: 98,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: OBSIDIAN.emerald,
   },
-  spinner: {
-    marginBottom: 24,
+  scannerOuter: {
+    width: 94,
+    height: 94,
+    borderRadius: 28,
+    padding: 2,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  scannerInner: {
+    flex: 1,
+    backgroundColor: '#0E1513',
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  corner: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    borderColor: OBSIDIAN.emerald,
+  },
+  cornerTL: {
+    top: 12,
+    left: 12,
+    borderTopWidth: 2,
+    borderLeftWidth: 2,
+    borderTopLeftRadius: 4,
+  },
+  cornerTR: {
+    top: 12,
+    right: 12,
+    borderTopWidth: 2,
+    borderRightWidth: 2,
+    borderTopRightRadius: 4,
+  },
+  cornerBL: {
+    bottom: 12,
+    left: 12,
+    borderBottomWidth: 2,
+    borderLeftWidth: 2,
+    borderBottomLeftRadius: 4,
+  },
+  cornerBR: {
+    bottom: 12,
+    right: 12,
+    borderBottomWidth: 2,
+    borderRightWidth: 2,
+    borderBottomRightRadius: 4,
+  },
+  laserBeam: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    height: 3,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 10,
+  },
+  laserLine: {
+    flex: 1,
+    borderRadius: 2,
+  },
+  /* Header & Text */
+  pillBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: OBSIDIAN.emeraldBg,
+    borderWidth: 1,
+    borderColor: OBSIDIAN.emeraldBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginBottom: 12,
+  },
+  pillText: {
+    color: OBSIDIAN.emerald,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.1,
   },
   title: {
-    fontWeight: '600',
-    color: colors.text,
+    fontSize: 24,
+    fontWeight: '800',
+    color: OBSIDIAN.textPrimary,
     textAlign: 'center',
+    letterSpacing: -0.5,
   },
   subtitle: {
-    color: colors.grey,
+    fontSize: 13.5,
+    color: OBSIDIAN.textSecondary,
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 32,
-    lineHeight: 22,
+    marginTop: 6,
+    marginBottom: 20,
+    lineHeight: 20,
+    maxWidth: 320,
   },
-  steps: {
-    alignSelf: 'stretch',
-    paddingHorizontal: 40,
-    gap: 16,
+  warnBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: OBSIDIAN.amberBg,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginBottom: 14,
+  },
+  warnText: {
+    color: OBSIDIAN.amber,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  /* Steps Container */
+  stepsCard: {
+    width: '100%',
+    backgroundColor: OBSIDIAN.surfaceElevated,
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: OBSIDIAN.border,
+  },
+  stepWrapper: {
+    width: '100%',
   },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  stepDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#E2E8F0',
+  stepIconCol: {
+    width: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  stepDotDone: {
-    backgroundColor: colors.success,
-  },
-  stepDotActive: {
-    backgroundColor: colors.primary,
-    borderWidth: 2,
-    borderColor: '#99F6E4',
+  stepTextCol: {
+    flex: 1,
   },
   stepLabel: {
-    color: colors.grey,
+    color: OBSIDIAN.textMuted,
+    fontSize: 13.5,
+    fontWeight: '600',
   },
   stepLabelDone: {
-    color: colors.success,
+    color: OBSIDIAN.textPrimary,
+    fontWeight: '700',
   },
   stepLabelActive: {
-    color: colors.primary,
+    color: OBSIDIAN.cyan,
+    fontWeight: '700',
+  },
+  stepSub: {
+    color: OBSIDIAN.textSecondary,
+    fontSize: 11.5,
+    marginTop: 1.5,
+  },
+  connectorLine: {
+    width: 2,
+    height: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginLeft: 11,
+    marginVertical: 3,
+    borderRadius: 1,
+  },
+  /* Footer */
+  footerRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 18,
+    paddingHorizontal: 2,
+  },
+  timerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: OBSIDIAN.border,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  timerText: {
+    color: OBSIDIAN.textSecondary,
+    fontSize: 11.5,
     fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  vaultSkipBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  vaultSkipText: {
+    color: OBSIDIAN.emerald,
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

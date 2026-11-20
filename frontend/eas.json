@@ -7,7 +7,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://localhost:8000/api/v1"
+        "EXPO_PUBLIC_API_URL": "https://receiptwise1.onrender.com"
       }
     },
     "preview": {
@@ -17,12 +17,13 @@
       },
       "env": {
         "EXPO_PUBLIC_DEMO_MODE": "false",
-        "EXPO_PUBLIC_API_URL": "http://192.168.1.8:8000/api/v1"
+        "EXPO_PUBLIC_API_URL": "https://receiptwise1.onrender.com/api/v1"
       }
     },
     "production": {
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.example.com/api/v1"
+        "EXPO_PUBLIC_DEMO_MODE": "false",
+        "EXPO_PUBLIC_API_URL": "https://receiptwise1.onrender.com/api/v1"
       }
     }
   },
