@@ -3,14 +3,6 @@ import { authApi } from '../api/auth';
 import { secureStore } from '../lib/secureStore';
 import type { User, AuthTokens } from '../api/types';
 
-const demoUser: User = {
-  id: 'demo-user',
-  name: 'Demo User',
-  email: 'demo@receiptwise.app',
-  avatar_url: null,
-  created_at: '2026-01-01T00:00:00.000Z',
-};
-
 interface AuthState {
   user: User | null;
   isLoading: boolean;
@@ -28,9 +20,9 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
-    user: demoUser,
-    isLoading: false,
-    isAuthenticated: true,
+    user: null,
+    isLoading: true,
+    isAuthenticated: false,
   });
 
   // Check for existing session on mount
@@ -45,49 +37,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const user = await authApi.getMe();
         setState({ user, isLoading: false, isAuthenticated: true });
       } else {
-        setState({ user: demoUser, isLoading: false, isAuthenticated: true });
+        setState({ user: null, isLoading: false, isAuthenticated: false });
       }
     } catch {
-      setState({ user: demoUser, isLoading: false, isAuthenticated: true });
+      await secureStore.clearTokens();
+      setState({ user: null, isLoading: false, isAuthenticated: false });
     }
   };
 
   const login = useCallback(async (email: string, password: string) => {
-    try {
-      const tokens: AuthTokens = await authApi.login({ email, password });
-      await secureStore.setTokens(tokens.access_token, tokens.refresh_token);
-      const user = await authApi.getMe();
-      setState({ user, isLoading: false, isAuthenticated: true });
-    } catch {
-      // In local mode, simulate successful login
-      const localUser: User = {
-        id: `user-${Date.now()}`,
-        name: email.split('@')[0] || 'User',
-        email,
-        avatar_url: null,
-        created_at: new Date().toISOString(),
-      };
-      setState({ user: localUser, isLoading: false, isAuthenticated: true });
-    }
+    const tokens: AuthTokens = await authApi.login({ email, password });
+    await secureStore.setTokens(tokens.access_token, tokens.refresh_token);
+    const user = await authApi.getMe();
+    setState({ user, isLoading: false, isAuthenticated: true });
   }, []);
 
   const signup = useCallback(async (name: string, email: string, password: string) => {
-    try {
-      const tokens: AuthTokens = await authApi.signup({ name, email, password });
-      await secureStore.setTokens(tokens.access_token, tokens.refresh_token);
-      const user = await authApi.getMe();
-      setState({ user, isLoading: false, isAuthenticated: true });
-    } catch {
-      // In local mode, simulate successful signup
-      const localUser: User = {
-        id: `user-${Date.now()}`,
-        name,
-        email,
-        avatar_url: null,
-        created_at: new Date().toISOString(),
-      };
-      setState({ user: localUser, isLoading: false, isAuthenticated: true });
-    }
+    const tokens: AuthTokens = await authApi.signup({ name, email, password });
+    await secureStore.setTokens(tokens.access_token, tokens.refresh_token);
+    const user = await authApi.getMe();
+    setState({ user, isLoading: false, isAuthenticated: true });
   }, []);
 
   const logout = useCallback(async () => {
@@ -97,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Ignore
     }
     await secureStore.clearTokens();
-    setState({ user: demoUser, isLoading: false, isAuthenticated: true });
+    setState({ user: null, isLoading: false, isAuthenticated: false });
   }, []);
 
   const refreshUser = useCallback(async () => {

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { router } from 'expo-router';
@@ -8,6 +8,16 @@ import { receiptsApi } from '../api/receipts';
 import { optimizeImage, isFileTooLarge, isLowResolution, IMAGE_CONSTRAINTS } from '../lib/imageOptimizer';
 
 type UploadState = 'idle' | 'picking' | 'optimizing' | 'uploading' | 'done' | 'error';
+
+async function appendFileToForm(form: FormData, uri: string, name: string, type: string) {
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    form.append('file', blob, name);
+  } else {
+    form.append('file', { uri, name, type } as any);
+  }
+}
 
 export function useUpload() {
   const [state, setState] = useState<UploadState>('idle');
@@ -40,11 +50,7 @@ export function useUpload() {
 
       setState('uploading');
       const form = new FormData();
-      form.append('file', {
-        uri: optimized.uri,
-        name: 'receipt.jpg',
-        type: 'image/jpeg',
-      } as any);
+      await appendFileToForm(form, optimized.uri, 'receipt.jpg', 'image/jpeg');
       form.append('source', source);
 
       const result = await receiptsApi.upload(form);
@@ -161,11 +167,7 @@ export function useUpload() {
     setState('uploading');
     try {
       const form = new FormData();
-      form.append('file', {
-        uri: file.uri,
-        name: file.name || 'receipt.pdf',
-        type: 'application/pdf',
-      } as any);
+      await appendFileToForm(form, file.uri, file.name || 'receipt.pdf', 'application/pdf');
       form.append('source', 'pdf');
 
       const uploadResult = await receiptsApi.upload(form);

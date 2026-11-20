@@ -1,6 +1,6 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, Button, Divider, IconButton, Menu } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, Alert, Platform, TouchableOpacity } from 'react-native';
+import { Text, Button, Divider } from 'react-native-paper';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useReceipt } from '../../src/hooks/useReceipt';
@@ -19,17 +19,25 @@ export default function ReceiptDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { receipt, isLoading, isError, refetch, invalidate } = useReceipt(id);
   const queryClient = useQueryClient();
-  const [menuVisible, setMenuVisible] = React.useState(false);
 
   if (isLoading) return <LoadingSkeleton count={5} />;
   if (isError || !receipt) return <ErrorView onRetry={refetch} />;
+
+  const showAlert = (title: string, message: string) => {
+    if (Platform.OS === 'web') {
+      window.alert(`${title}: ${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  };
 
   const handleFavorite = async () => {
     try {
       await receiptsApi.toggleFavorite(id, !receipt.is_favorite);
       invalidate();
+      queryClient.invalidateQueries({ queryKey: ['receipts'] });
     } catch (err: any) {
-      Alert.alert('Error', err.message);
+      showAlert('Error', err.message || 'Failed to update favorite');
     }
   };
 
@@ -37,15 +45,38 @@ export default function ReceiptDetailScreen() {
     try {
       await receiptsApi.archive(id, !receipt.is_archived);
       invalidate();
+      queryClient.invalidateQueries({ queryKey: ['receipts'] });
       if (!receipt.is_archived) {
-        Alert.alert('Archived', 'Receipt has been archived.');
+        showAlert('Archived', 'Receipt has been archived.');
       }
     } catch (err: any) {
-      Alert.alert('Error', err.message);
+      showAlert('Error', err.message || 'Failed to archive receipt');
+    }
+  };
+
+  const executeDelete = async () => {
+    try {
+      await receiptsApi.delete(id);
+      queryClient.invalidateQueries({ queryKey: ['receipts'] });
+      queryClient.invalidateQueries({ queryKey: ['reminders'] });
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/(tabs)');
+      }
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to delete receipt');
     }
   };
 
   const handleDelete = () => {
+    if (Platform.OS === 'web') {
+      if (window.confirm('Delete Receipt\n\nThis action cannot be undone. Are you sure?')) {
+        executeDelete();
+      }
+      return;
+    }
+
     Alert.alert(
       'Delete Receipt',
       'This action cannot be undone. Are you sure?',
@@ -54,15 +85,7 @@ export default function ReceiptDetailScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              await receiptsApi.delete(id);
-              queryClient.invalidateQueries({ queryKey: ['receipts'] });
-              router.back();
-            } catch (err: any) {
-              Alert.alert('Error', err.message);
-            }
-          },
+          onPress: executeDelete,
         },
       ]
     );
@@ -292,11 +315,8 @@ function ActionButton({
   danger?: boolean;
 }) {
   return (
-    <View style={styles.actionItem}>
-      <Text
-        style={[styles.actionIcon, danger && { opacity: 0.7 }]}
-        onPress={onPress}
-      >
+    <TouchableOpacity style={styles.actionItem} onPress={onPress} activeOpacity={0.7}>
+      <Text style={[styles.actionIcon, danger && { opacity: 0.7 }]}>
         {icon}
       </Text>
       <Text
@@ -309,7 +329,7 @@ function ActionButton({
       >
         {label}
       </Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 

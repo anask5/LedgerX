@@ -68,7 +68,7 @@ export const api = {
     const token = auth ? await secureStore.getAccessToken() : null;
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     let res: Response;
     try {

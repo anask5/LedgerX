@@ -5,7 +5,7 @@ import { PaperProvider } from 'react-native-paper';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { AuthProvider } from '../src/hooks/useAuth';
+import { AuthProvider, useAuth } from '../src/hooks/useAuth';
 import { theme } from '../src/theme';
 
 const queryClient = new QueryClient({
@@ -25,6 +25,20 @@ export const unstable_settings = {
 function RootNavigator() {
   const lastBackPressAt = useRef(0);
   const segments = useSegments();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  // Redirect based on auth state
+  useEffect(() => {
+    if (isLoading) return;
+
+    const inAuthGroup = segments[0] === '(auth)';
+
+    if (!isAuthenticated && !inAuthGroup) {
+      router.replace('/(auth)/login');
+    } else if (isAuthenticated && inAuthGroup) {
+      router.replace('/(tabs)');
+    }
+  }, [isAuthenticated, isLoading, segments]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -32,8 +46,6 @@ function RootNavigator() {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       const inTabs = segments[0] === '(tabs)';
 
-      // Tab screens should not leave a trace in the global router history.
-      // Back first returns to Home, then uses the usual two-press exit flow.
       if (inTabs) {
         const activeTab = segments.join('/').replace(/^\(tabs\)\/?/, '') || 'index';
         if (activeTab !== 'index') {
@@ -42,21 +54,16 @@ function RootNavigator() {
         }
       }
 
-      // Let pushed/detail/modal screens behave like normal in-app screens.
       if (!inTabs && segments.length > 0 && router.canGoBack()) {
         router.back();
         return true;
       }
 
-      // If a detail screen was opened directly, return to the app instead of
-      // allowing the OS to leave it immediately.
       if (!inTabs && segments.length > 0) {
         router.replace('/(tabs)');
         return true;
       }
 
-      // At the app's root, avoid accidentally closing the app. A second press
-      // within two seconds delegates to Android's default exit behavior.
       const now = Date.now();
       if (now - lastBackPressAt.current < 2000) {
         return false;
