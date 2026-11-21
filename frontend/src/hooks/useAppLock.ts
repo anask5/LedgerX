@@ -12,7 +12,7 @@ export function useAppLock() {
   const backgroundedAt = useRef<number | null>(null);
 
   useEffect(() => {
-    // Check if app lock is enabled
+    // app lock is enabled
     checkEnabled();
   }, []);
 
@@ -25,8 +25,7 @@ export function useAppLock() {
 
   const checkEnabled = async () => {
     try {
-      const val = await secureStore.getAccessToken(); // Using a simple store check
-      // In a real app, you'd store a separate "lock enabled" preference
+      const val = await secureStore.getAccessToken(); 
       setIsEnabled(false); // Default off
     } catch {
       setIsEnabled(false);
