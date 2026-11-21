@@ -1,9 +1,16 @@
 import { secureStore } from '../lib/secureStore';
 import type { ApiError } from './types';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
-// In demo mode every API module uses its local fallback data. Do not wait for
-// an unreachable server before falling back — this keeps navigation instant.
+function normalizeApiUrl(rawUrl: string | undefined): string {
+  const fallback = 'http://localhost:8000/api/v1';
+  const cleaned = (rawUrl || fallback).trim().replace(/\/+$/, '');
+  if (/\/api\/v1$/i.test(cleaned)) {
+    return cleaned;
+  }
+  return `${cleaned}/api/v1`;
+}
+
+const API_URL = normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL);
 const IS_DEMO_MODE = process.env.EXPO_PUBLIC_DEMO_MODE === 'true';
 
 // Single-flight refresh: concurrent 401s wait on one refresh promise
@@ -66,13 +73,14 @@ export const api = {
 
     const { auth = true, ...fetchOpts } = opts;
     const token = auth ? await secureStore.getAccessToken() : null;
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
 
     let res: Response;
     try {
-      res = await fetch(`${API_URL}${path}`, {
+      res = await fetch(`${API_URL}${normalizedPath}`, {
         ...fetchOpts,
         signal: controller.signal,
         headers: {
@@ -81,6 +89,17 @@ export const api = {
           ...(fetchOpts.headers || {}),
         },
       });
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw {
+          message: 'Request timed out. The server may be waking up—please try again.',
+          code: 'TIMEOUT',
+        } satisfies ApiError;
+      }
+      throw {
+        message: err?.message || 'Network request failed',
+        code: 'NETWORK_ERROR',
+      } satisfies ApiError;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -88,10 +107,8 @@ export const api = {
     if (res.status === 401 && auth) {
       try {
         await refreshAccessToken();
-        // Retry once with new token
-        return api.request(path, opts);
+        return api.request<T>(path, opts);
       } catch {
-        // Refresh also failed — clear tokens (will redirect to login)
         await secureStore.clearTokens();
         throw await parseError(res);
       }
@@ -101,7 +118,6 @@ export const api = {
       throw await parseError(res);
     }
 
-    // Handle 204 No Content
     if (res.status === 204) return undefined as T;
 
     return res.json();
@@ -116,22 +132,52 @@ export const api = {
     }
 
     const token = await secureStore.getAccessToken();
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
 
-    const res = await fetch(`${API_URL}${path}`, {
-      method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        // Don't set Content-Type — let fetch set it with boundary
-      },
-      body: formData,
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-    if (res.status === 401) {
-      await refreshAccessToken();
-      return api.upload(path, formData);
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}${normalizedPath}`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          // Do not set Content-Type manually so React Native/Web sets the multipart boundary
+        },
+        body: formData,
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw {
+          message: 'Receipt scan timed out after 60s. Try a smaller image or retry.',
+          code: 'TIMEOUT',
+        } satisfies ApiError;
+      }
+      throw {
+        message: err?.message || 'Upload network error on device',
+        code: 'UPLOAD_NETWORK_ERROR',
+      } satisfies ApiError;
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    if (!res.ok) throw await parseError(res);
+    if (res.status === 401) {
+      try {
+        await refreshAccessToken();
+        return api.upload<T>(path, formData);
+      } catch {
+        await secureStore.clearTokens();
+        throw await parseError(res);
+      }
+    }
+
+    if (!res.ok) {
+      throw await parseError(res);
+    }
+
     return res.json();
   },
 };

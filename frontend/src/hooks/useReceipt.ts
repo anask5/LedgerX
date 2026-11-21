@@ -8,9 +8,13 @@ export function useReceipt(id: string) {
     queryKey: ['receipt', id],
     queryFn: () => receiptsApi.get(id),
     enabled: !!id,
+    retry: 2,
     refetchInterval: (query) => {
-      const data = query.state.data;
-      return data?.status === 'processing' ? 2000 : false;
+      const status = query.state.data?.status;
+      if (status === 'ready' || status === 'failed') {
+        return false;
+      }
+      return 2000;
     },
   });
 

@@ -11,7 +11,6 @@ import Animated, {
   withRepeat,
   withSequence,
   withTiming,
-  withSpring,
   Easing,
 } from 'react-native-reanimated';
 import {
@@ -57,7 +56,6 @@ export default function ProcessingScreen() {
   const [timedOut, setTimedOut] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
 
-  // Reanimated shared values
   const laserY = useSharedValue(-30);
   const ringScale = useSharedValue(1);
   const ringOpacity = useSharedValue(0.45);
@@ -98,7 +96,6 @@ export default function ProcessingScreen() {
     );
   }, []);
 
-  // Live elapsed timer for progressive visual step feedback
   useEffect(() => {
     const interval = setInterval(() => {
       setElapsedSec((prev) => prev + 1);
@@ -106,7 +103,6 @@ export default function ProcessingScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  // Timeout after 60s
   useEffect(() => {
     const timer = setTimeout(() => {
       setTimedOut(true);
@@ -114,16 +110,14 @@ export default function ProcessingScreen() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Navigate when done
   useEffect(() => {
-    if (!receipt) return;
+    if (!receipt || !id) return;
 
     if (receipt.status === 'ready' || receipt.status === 'failed') {
       router.replace(`/review/${id}`);
     }
   }, [receipt?.status, id]);
 
-  // Handle timeout -> go to vault
   useEffect(() => {
     if (timedOut) {
       router.replace('/(tabs)/vault');
@@ -143,7 +137,6 @@ export default function ProcessingScreen() {
     transform: [{ rotate: `${spinDeg.value}deg` }],
   }));
 
-  // Compute active step index smoothly (0 = done, 1 = 0-3s, 2 = 3-8s, 3 = 8s+)
   const isDone = receipt?.status === 'ready' || receipt?.status === 'failed';
   const activeStepIndex = isDone
     ? 4
@@ -155,7 +148,6 @@ export default function ProcessingScreen() {
 
   return (
     <View style={styles.root}>
-      {/* Ambient Obsidian Glow */}
       <LinearGradient
         colors={['rgba(16, 185, 129, 0.24)', 'rgba(6, 182, 212, 0.07)', 'transparent']}
         start={{ x: 0.2, y: 0 }}
@@ -174,7 +166,6 @@ export default function ProcessingScreen() {
           entering={FadeInUp.duration(550).springify().damping(17)}
           style={styles.card}
         >
-          {/* Animated Sonar + Laser Scanner Viewfinder */}
           <View style={styles.scannerStage}>
             <Animated.View style={[styles.sonarRing, sonarStyle]} />
 
@@ -185,7 +176,6 @@ export default function ProcessingScreen() {
               style={styles.scannerOuter}
             >
               <View style={styles.scannerInner}>
-                {/* Corner Reticle Brackets */}
                 <View style={[styles.corner, styles.cornerTL]} />
                 <View style={[styles.corner, styles.cornerTR]} />
                 <View style={[styles.corner, styles.cornerBL]} />
@@ -193,7 +183,6 @@ export default function ProcessingScreen() {
 
                 <FileText size={38} color={OBSIDIAN.emerald} strokeWidth={1.7} />
 
-                {/* Sweeping Laser Beam */}
                 <Animated.View style={[styles.laserBeam, laserStyle]}>
                   <LinearGradient
                     colors={['transparent', '#10B981', '#06B6D4', '#10B981', 'transparent']}
@@ -206,7 +195,6 @@ export default function ProcessingScreen() {
             </LinearGradient>
           </View>
 
-          {/* AI Status Pill */}
           <Animated.View
             entering={FadeInDown.delay(100).duration(450)}
             style={styles.pillBadge}
@@ -229,7 +217,6 @@ export default function ProcessingScreen() {
             </View>
           )}
 
-          {/* Progressive Pipeline Steps */}
           <View style={styles.stepsCard}>
             {PIPELINE_STEPS.map((step, index) => {
               const done = index < activeStepIndex;
@@ -294,7 +281,6 @@ export default function ProcessingScreen() {
             })}
           </View>
 
-          {/* Elapsed Time Footer */}
           <View style={styles.footerRow}>
             <View style={styles.timerPill}>
               <Clock size={12} color={OBSIDIAN.textSecondary} />
@@ -360,7 +346,6 @@ const styles = StyleSheet.create({
     shadowRadius: 30,
     elevation: 14,
   },
-  /* Scanner Stage */
   scannerStage: {
     width: 112,
     height: 112,
@@ -443,7 +428,6 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 2,
   },
-  /* Header & Text */
   pillBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -493,7 +477,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  /* Steps Container */
   stepsCard: {
     width: '100%',
     backgroundColor: OBSIDIAN.surfaceElevated,
@@ -544,7 +527,6 @@ const styles = StyleSheet.create({
     marginVertical: 3,
     borderRadius: 1,
   },
-  /* Footer */
   footerRow: {
     width: '100%',
     flexDirection: 'row',

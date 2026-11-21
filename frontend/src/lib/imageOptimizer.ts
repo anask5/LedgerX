@@ -6,21 +6,45 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 /**
  * Optimize an image for upload:
- * - Resize longest side to 2000px
+ * - Downscale longest side to at most 2000px while preserving aspect ratio
  * - Compress to JPEG quality 0.8
+ * - Fall back to the original URI if manipulation fails on a device URI
  */
-export async function optimizeImage(uri: string): Promise<{ uri: string; width: number; height: number }> {
-  const result = await ImageManipulator.manipulateAsync(
-    uri,
-    [{ resize: { width: MAX_WIDTH } }],
-    { compress: JPEG_QUALITY, format: ImageManipulator.SaveFormat.JPEG }
-  );
+export async function optimizeImage(
+  uri: string,
+  width?: number,
+  height?: number
+): Promise<{ uri: string; width: number; height: number }> {
+  try {
+    const actions: ImageManipulator.Action[] = [];
 
-  return {
-    uri: result.uri,
-    width: result.width,
-    height: result.height,
-  };
+    if (width && height) {
+      if (width >= height && width > MAX_WIDTH) {
+        actions.push({ resize: { width: MAX_WIDTH } });
+      } else if (height > width && height > MAX_WIDTH) {
+        actions.push({ resize: { height: MAX_WIDTH } });
+      }
+    } else {
+      actions.push({ resize: { width: MAX_WIDTH } });
+    }
+
+    const result = await ImageManipulator.manipulateAsync(uri, actions, {
+      compress: JPEG_QUALITY,
+      format: ImageManipulator.SaveFormat.JPEG,
+    });
+
+    return {
+      uri: result.uri || uri,
+      width: result.width || width || 0,
+      height: result.height || height || 0,
+    };
+  } catch {
+    return {
+      uri,
+      width: width || 0,
+      height: height || 0,
+    };
+  }
 }
 
 /**

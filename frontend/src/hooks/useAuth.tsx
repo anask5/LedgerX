@@ -25,25 +25,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: false,
   });
 
-  // Check for existing session on mount
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       const token = await secureStore.getAccessToken();
-      if (token) {
-        const user = await authApi.getMe();
-        setState({ user, isLoading: false, isAuthenticated: true });
-      } else {
+      if (!token) {
         setState({ user: null, isLoading: false, isAuthenticated: false });
+        return;
       }
-    } catch {
-      await secureStore.clearTokens();
+
+      const user = await authApi.getMe();
+      setState({ user, isLoading: false, isAuthenticated: true });
+    } catch (err: any) {
+      // Only wipe stored tokens if unauthorized/invalid session; keep token on transient network/timeout errors
+      if (err?.code === '401' || err?.status === 401) {
+        await secureStore.clearTokens();
+        setState({ user: null, isLoading: false, isAuthenticated: false });
+        return;
+      }
       setState({ user: null, isLoading: false, isAuthenticated: false });
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const login = useCallback(async (email: string, password: string) => {
     const tokens: AuthTokens = await authApi.login({ email, password });
@@ -63,7 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await authApi.logout();
     } catch {
-      // Ignore
+      // Ignore logout request errors
     }
     await secureStore.clearTokens();
     setState({ user: null, isLoading: false, isAuthenticated: false });
@@ -74,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const user = await authApi.getMe();
       setState((prev) => ({ ...prev, user }));
     } catch {
-      // ignore
+      // Ignore transient refresh errors
     }
   }, []);
 

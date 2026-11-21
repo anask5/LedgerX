@@ -5,17 +5,50 @@ import * as DocumentPicker from 'expo-document-picker';
 import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { receiptsApi } from '../api/receipts';
-import { optimizeImage, isFileTooLarge, isLowResolution, IMAGE_CONSTRAINTS } from '../lib/imageOptimizer';
+import {
+  optimizeImage,
+  isFileTooLarge,
+  isLowResolution,
+  IMAGE_CONSTRAINTS,
+} from '../lib/imageOptimizer';
 
 type UploadState = 'idle' | 'picking' | 'optimizing' | 'uploading' | 'done' | 'error';
 
-async function appendFileToForm(form: FormData, uri: string, name: string, type: string) {
+function normalizeNativeUri(uri: string): string {
+  if (Platform.OS === 'web') return uri;
+  if (
+    uri.startsWith('file://') ||
+    uri.startsWith('content://') ||
+    uri.startsWith('ph://')
+  ) {
+    return uri;
+  }
+  return `file://${uri}`;
+}
+
+function getErrorMessage(err: any): string {
+  if (!err) return 'Upload failed';
+  if (typeof err === 'string') return err;
+  return err.message || err.detail || err.error || 'Upload failed';
+}
+
+async function appendFileToForm(
+  form: FormData,
+  rawUri: string,
+  name: string,
+  type: string
+) {
   if (Platform.OS === 'web') {
-    const response = await fetch(uri);
+    const response = await fetch(rawUri);
     const blob = await response.blob();
     form.append('file', blob, name);
   } else {
-    form.append('file', { uri, name, type } as any);
+    const uri = normalizeNativeUri(rawUri);
+    form.append('file', {
+      uri,
+      name,
+      type,
+    } as any);
   }
 }
 
@@ -43,38 +76,53 @@ export function useUpload() {
     );
   }, []);
 
-  const uploadImage = useCallback(async (uri: string, source: 'camera' | 'gallery') => {
-    try {
-      setState('optimizing');
-      const optimized = await optimizeImage(uri);
+  const uploadImage = useCallback(
+    async (uri: string, source: 'camera' | 'gallery') => {
+      try {
+        setError(null);
+        setState('optimizing');
+        const optimized = await optimizeImage(normalizeNativeUri(uri));
+        const fileUri = optimized?.uri || uri;
 
-      setState('uploading');
-      const form = new FormData();
-      await appendFileToForm(form, optimized.uri, 'receipt.jpg', 'image/jpeg');
-      form.append('source', source);
+        setState('uploading');
+        const form = new FormData();
+        await appendFileToForm(form, fileUri, `receipt_${Date.now()}.jpg`, 'image/jpeg');
+        form.append('source', source);
 
-      const result = await receiptsApi.upload(form);
+        const rawResult: any = await receiptsApi.upload(form);
+        const payload = rawResult?.data ?? rawResult;
 
-      if (result.data.duplicate && result.data.existing_id) {
-        handleDuplicate(result.data.existing_id);
+        if (!payload?.id) {
+          throw new Error('Server did not return a receipt ID after upload.');
+        }
+
+        if (payload.duplicate && payload.existing_id) {
+          handleDuplicate(payload.existing_id);
+          setState('done');
+          return;
+        }
+
+        queryClient.invalidateQueries({ queryKey: ['receipts'] });
         setState('done');
-        return;
+        router.replace(`/processing/${payload.id}`);
+      } catch (err: any) {
+        setState('error');
+        setError(getErrorMessage(err));
       }
-
-      queryClient.invalidateQueries({ queryKey: ['receipts'] });
-      setState('done');
-      router.replace(`/processing/${result.data.id}`);
-    } catch (err: any) {
-      setState('error');
-      setError(err.message || 'Upload failed');
-    }
-  }, [handleDuplicate, queryClient]);
+    },
+    [handleDuplicate, queryClient]
+  );
 
   const pickFromCamera = useCallback(async () => {
+    setError(null);
     setState('picking');
+
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Permission needed', 'Camera permission is required to scan receipts.');
+      Alert.alert(
+        'Permission needed',
+        'Camera permission is required to scan receipts.'
+      );
       setState('idle');
       return;
     }
@@ -84,14 +132,17 @@ export function useUpload() {
       quality: 1,
     });
 
-    if (result.canceled) {
+    if (result.canceled || !result.assets?.length) {
       setState('idle');
       return;
     }
 
     const asset = result.assets[0];
     if (asset.fileSize && isFileTooLarge(asset.fileSize)) {
-      Alert.alert('File too big', `Maximum file size is ${IMAGE_CONSTRAINTS.MAX_FILE_SIZE_MB} MB.`);
+      Alert.alert(
+        'File too big',
+        `Maximum file size is ${IMAGE_CONSTRAINTS.MAX_FILE_SIZE_MB} MB.`
+      );
       setState('idle');
       return;
     }
@@ -112,20 +163,37 @@ export function useUpload() {
   }, [uploadImage]);
 
   const pickFromGallery = useCallback(async () => {
+    setError(null);
     setState('picking');
+
+    if (Platform.OS !== 'web') {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          'Media library permission is required to select receipt images.'
+        );
+        setState('idle');
+        return;
+      }
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 1,
     });
 
-    if (result.canceled) {
+    if (result.canceled || !result.assets?.length) {
       setState('idle');
       return;
     }
 
     const asset = result.assets[0];
     if (asset.fileSize && isFileTooLarge(asset.fileSize)) {
-      Alert.alert('File too big', `Maximum file size is ${IMAGE_CONSTRAINTS.MAX_FILE_SIZE_MB} MB.`);
+      Alert.alert(
+        'File too big',
+        `Maximum file size is ${IMAGE_CONSTRAINTS.MAX_FILE_SIZE_MB} MB.`
+      );
       setState('idle');
       return;
     }
@@ -146,20 +214,25 @@ export function useUpload() {
   }, [uploadImage]);
 
   const pickPDF = useCallback(async () => {
+    setError(null);
     setState('picking');
+
     const result = await DocumentPicker.getDocumentAsync({
       type: 'application/pdf',
       copyToCacheDirectory: true,
     });
 
-    if (result.canceled) {
+    if (result.canceled || !result.assets?.length) {
       setState('idle');
       return;
     }
 
     const file = result.assets[0];
     if (file.size && isFileTooLarge(file.size)) {
-      Alert.alert('File too big', `Maximum file size is ${IMAGE_CONSTRAINTS.MAX_FILE_SIZE_MB} MB.`);
+      Alert.alert(
+        'File too big',
+        `Maximum file size is ${IMAGE_CONSTRAINTS.MAX_FILE_SIZE_MB} MB.`
+      );
       setState('idle');
       return;
     }
@@ -167,23 +240,33 @@ export function useUpload() {
     setState('uploading');
     try {
       const form = new FormData();
-      await appendFileToForm(form, file.uri, file.name || 'receipt.pdf', 'application/pdf');
+      await appendFileToForm(
+        form,
+        file.uri,
+        file.name || `receipt_${Date.now()}.pdf`,
+        file.mimeType || 'application/pdf'
+      );
       form.append('source', 'pdf');
 
-      const uploadResult = await receiptsApi.upload(form);
+      const rawResult: any = await receiptsApi.upload(form);
+      const payload = rawResult?.data ?? rawResult;
 
-      if (uploadResult.data.duplicate && uploadResult.data.existing_id) {
-        handleDuplicate(uploadResult.data.existing_id);
+      if (!payload?.id) {
+        throw new Error('Server did not return a receipt ID after PDF upload.');
+      }
+
+      if (payload.duplicate && payload.existing_id) {
+        handleDuplicate(payload.existing_id);
         setState('done');
         return;
       }
 
       queryClient.invalidateQueries({ queryKey: ['receipts'] });
       setState('done');
-      router.replace(`/processing/${uploadResult.data.id}`);
+      router.replace(`/processing/${payload.id}`);
     } catch (err: any) {
       setState('error');
-      setError(err.message || 'Upload failed');
+      setError(getErrorMessage(err));
     }
   }, [handleDuplicate, queryClient]);
 

@@ -74,7 +74,6 @@ function RootNavigator() {
   const segments = useSegments();
   const { isAuthenticated, isLoading } = useAuth();
 
-  // Redirect based on auth state
   useEffect(() => {
     if (isLoading) return;
 
@@ -135,7 +134,7 @@ function RootNavigator() {
       fontSize: 17,
     },
     headerShadowVisible: false,
-    headerBackTitleVisible: false,
+    headerBackTitle: '',
     headerLeft: () => <HeaderBackButton />,
   };
 
@@ -149,13 +148,8 @@ function RootNavigator() {
           animation: 'fade_from_bottom',
         }}
       >
-        {/* Main Tab Navigator (Home, Vault, Add, Reminders, Settings) */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-
-        {/* Auth Navigator (Login, Signup, Forgot Password) */}
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-
-        {/* Stack/Modal Screens */}
         <Stack.Screen
           name="receipt/[id]"
           options={{

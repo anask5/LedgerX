@@ -60,6 +60,7 @@ interface UploadOptionCardProps {
   gradientColors: [string, string];
   icon: React.ReactNode;
   onPress: () => void;
+  disabled?: boolean;
   delay: number;
 }
 
@@ -71,6 +72,7 @@ function UploadOptionCard({
   gradientColors,
   icon,
   onPress,
+  disabled = false,
   delay,
 }: UploadOptionCardProps) {
   const scale = useSharedValue(1);
@@ -84,14 +86,21 @@ function UploadOptionCard({
       entering={FadeInDown.delay(delay).duration(550).springify().damping(17)}
     >
       <AnimatedPressable
+        disabled={disabled}
         onPressIn={() => {
-          scale.value = withSpring(0.975, { damping: 16, stiffness: 320 });
+          if (!disabled) {
+            scale.value = withSpring(0.975, { damping: 16, stiffness: 320 });
+          }
         }}
         onPressOut={() => {
           scale.value = withSpring(1, { damping: 16, stiffness: 320 });
         }}
         onPress={onPress}
-        style={[styles.optionCard, animatedStyle]}
+        style={[
+          styles.optionCard,
+          disabled && { opacity: 0.55 },
+          animatedStyle,
+        ]}
       >
         <LinearGradient
           colors={gradientColors}
@@ -214,7 +223,8 @@ function ScanningLoader({ state }: { state: string }) {
 }
 
 export default function AddScreen() {
-  const { pickFromCamera, pickFromGallery, pickPDF, isUploading, state, error, reset } = useUpload();
+  const { pickFromCamera, pickFromGallery, pickPDF, isUploading, state, error, reset } =
+    useUpload();
   const retryScale = useSharedValue(1);
 
   const retryAnimatedStyle = useAnimatedStyle(() => ({
@@ -244,7 +254,8 @@ export default function AddScreen() {
 
           <Text style={styles.errorTitle}>Upload Failed</Text>
           <Text style={styles.errorMessage}>
-            {error || 'We could not process that receipt. Please check your connection and try again.'}
+            {error ||
+              'We could not process that receipt. Please check your connection and try again.'}
           </Text>
 
           <AnimatedPressable
@@ -278,6 +289,8 @@ export default function AddScreen() {
     'Keep all four corners and totals inside the frame',
     'Supports JPG, PNG & PDF files up to 10 MB',
   ];
+
+  const isBusy = isUploading || state === 'picking';
 
   return (
     <View style={styles.root}>
@@ -332,6 +345,7 @@ export default function AddScreen() {
               gradientColors={['rgba(16, 185, 129, 0.35)', 'rgba(5, 150, 105, 0.12)']}
               icon={<Camera size={24} color={OBSIDIAN.emerald} strokeWidth={2.1} />}
               onPress={pickFromCamera}
+              disabled={isBusy}
               delay={120}
             />
 
@@ -343,6 +357,7 @@ export default function AddScreen() {
               gradientColors={['rgba(99, 102, 241, 0.35)', 'rgba(79, 70, 229, 0.12)']}
               icon={<ImageIcon size={24} color="#818CF8" strokeWidth={2.1} />}
               onPress={pickFromGallery}
+              disabled={isBusy}
               delay={200}
             />
 
@@ -354,6 +369,7 @@ export default function AddScreen() {
               gradientColors={['rgba(168, 85, 247, 0.35)', 'rgba(124, 58, 237, 0.12)']}
               icon={<FileText size={24} color="#C084FC" strokeWidth={2.1} />}
               onPress={pickPDF}
+              disabled={isBusy}
               delay={280}
             />
           </View>

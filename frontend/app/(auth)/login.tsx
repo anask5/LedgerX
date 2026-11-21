@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -69,7 +69,10 @@ interface ObsidianInputProps {
   keyboardType?: 'default' | 'email-address';
   autoCapitalize?: 'none' | 'words';
   autoComplete?: 'email' | 'password';
-  delay?: number;
+  returnKeyType?: 'next' | 'done';
+  blurOnSubmit?: boolean;
+  onSubmitEditing?: () => void;
+  inputRef?: React.RefObject<TextInput | null>;
   rightLabelAction?: React.ReactNode;
 }
 
@@ -85,7 +88,10 @@ function ObsidianInput({
   keyboardType = 'default',
   autoCapitalize = 'none',
   autoComplete,
-  delay = 0,
+  returnKeyType = 'done',
+  blurOnSubmit = true,
+  onSubmitEditing,
+  inputRef,
   rightLabelAction,
 }: ObsidianInputProps) {
   const [isFocused, setIsFocused] = useState(false);
@@ -98,16 +104,14 @@ function ObsidianInput({
     : OBSIDIAN.border;
 
   return (
-    <Animated.View
-      entering={FadeInDown.delay(delay).duration(500).springify().damping(18)}
-      style={styles.fieldWrapper}
-    >
+    <View style={styles.fieldWrapper}>
       <View style={styles.labelRow}>
         <Text style={styles.fieldLabel}>{label}</Text>
         {rightLabelAction}
       </View>
 
-      <View
+      <Pressable
+        onPress={() => inputRef?.current?.focus()}
         style={[
           styles.inputContainer,
           {
@@ -119,6 +123,7 @@ function ObsidianInput({
       >
         <View style={styles.iconLeft}>{icon}</View>
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
           onFocus={() => setIsFocused(true)}
@@ -132,6 +137,9 @@ function ObsidianInput({
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
           autoComplete={autoComplete}
+          returnKeyType={returnKeyType}
+          blurOnSubmit={blurOnSubmit}
+          onSubmitEditing={onSubmitEditing}
           selectionColor={OBSIDIAN.emerald}
           style={[
             styles.textInput,
@@ -151,15 +159,15 @@ function ObsidianInput({
             )}
           </Pressable>
         )}
-      </View>
+      </Pressable>
 
       {error && (
-        <Animated.View entering={FadeInDown.duration(200)} style={styles.errorRow}>
+        <View style={styles.errorRow}>
           <AlertCircle size={13} color={OBSIDIAN.dangerText} />
           <Text style={styles.fieldErrorText}>{error}</Text>
-        </Animated.View>
+        </View>
       )}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -167,6 +175,9 @@ export default function LoginScreen() {
   const { login } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const emailInputRef = useRef<TextInput | null>(null);
+  const passwordInputRef = useRef<TextInput | null>(null);
 
   const buttonScale = useSharedValue(1);
   const shakeX = useSharedValue(0);
@@ -209,7 +220,7 @@ export default function LoginScreen() {
       await login(data.email, data.password);
       router.replace('/(tabs)');
     } catch (err: any) {
-      setError(err.message || 'Login failed. Please try again.');
+      setError(err?.message || 'Login failed. Please try again.');
       triggerShake();
     } finally {
       setIsSubmitting(false);
@@ -246,7 +257,7 @@ export default function LoginScreen() {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -289,10 +300,10 @@ export default function LoginScreen() {
               style={[styles.card, formShakeStyle]}
             >
               {error && (
-                <Animated.View entering={FadeInDown.duration(250)} style={styles.errorBanner}>
+                <View style={styles.errorBanner}>
                   <AlertCircle size={16} color={OBSIDIAN.dangerText} />
                   <Text style={styles.errorBannerText}>{error}</Text>
-                </Animated.View>
+                </View>
               )}
 
               <Controller
@@ -300,6 +311,7 @@ export default function LoginScreen() {
                 name="email"
                 render={({ field: { onChange, onBlur, value } }) => (
                   <ObsidianInput
+                    inputRef={emailInputRef}
                     label="Email Address"
                     placeholder="you@example.com"
                     value={value}
@@ -308,9 +320,11 @@ export default function LoginScreen() {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoComplete="email"
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => passwordInputRef.current?.focus()}
                     error={errors.email?.message}
                     icon={<Mail size={18} color={OBSIDIAN.textSecondary} />}
-                    delay={180}
                   />
                 )}
               />
@@ -320,6 +334,7 @@ export default function LoginScreen() {
                 name="password"
                 render={({ field: { onChange, onBlur, value } }) => (
                   <ObsidianInput
+                    inputRef={passwordInputRef}
                     label="Password"
                     placeholder="Enter your password"
                     value={value}
@@ -327,9 +342,11 @@ export default function LoginScreen() {
                     onBlur={onBlur}
                     secureTextEntry
                     autoComplete="password"
+                    returnKeyType="done"
+                    blurOnSubmit
+                    onSubmitEditing={() => handleSubmit(onSubmit, triggerShake)()}
                     error={errors.password?.message}
                     icon={<Lock size={18} color={OBSIDIAN.textSecondary} />}
-                    delay={250}
                     rightLabelAction={
                       <Link href="/(auth)/forgot-password" asChild>
                         <Pressable hitSlop={8}>
@@ -342,10 +359,7 @@ export default function LoginScreen() {
               />
 
               {/* Primary Emerald Gradient Submit Button */}
-              <Animated.View
-                entering={FadeInDown.delay(320).duration(500).springify()}
-                style={styles.buttonWrapper}
-              >
+              <View style={styles.buttonWrapper}>
                 <AnimatedPressable
                   disabled={isSubmitting}
                   onPressIn={() => {
@@ -373,7 +387,7 @@ export default function LoginScreen() {
                     )}
                   </LinearGradient>
                 </AnimatedPressable>
-              </Animated.View>
+              </View>
             </Animated.View>
 
             {/* Sign Up Footer */}

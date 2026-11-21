@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -68,7 +68,10 @@ interface ObsidianInputProps {
   keyboardType?: 'default' | 'email-address';
   autoCapitalize?: 'none' | 'words';
   autoComplete?: 'email' | 'name' | 'password-new';
-  delay?: number;
+  returnKeyType?: 'next' | 'done';
+  blurOnSubmit?: boolean;
+  onSubmitEditing?: () => void;
+  inputRef?: React.RefObject<TextInput | null>;
 }
 
 function ObsidianInput({
@@ -83,7 +86,10 @@ function ObsidianInput({
   keyboardType = 'default',
   autoCapitalize = 'none',
   autoComplete,
-  delay = 0,
+  returnKeyType = 'done',
+  blurOnSubmit = true,
+  onSubmitEditing,
+  inputRef,
 }: ObsidianInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -95,12 +101,10 @@ function ObsidianInput({
     : OBSIDIAN.border;
 
   return (
-    <Animated.View
-      entering={FadeInDown.delay(delay).duration(500).springify().damping(18)}
-      style={styles.fieldWrapper}
-    >
+    <View style={styles.fieldWrapper}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <View
+      <Pressable
+        onPress={() => inputRef?.current?.focus()}
         style={[
           styles.inputContainer,
           {
@@ -112,6 +116,7 @@ function ObsidianInput({
       >
         <View style={styles.iconLeft}>{icon}</View>
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
           onFocus={() => setIsFocused(true)}
@@ -125,6 +130,9 @@ function ObsidianInput({
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
           autoComplete={autoComplete}
+          returnKeyType={returnKeyType}
+          blurOnSubmit={blurOnSubmit}
+          onSubmitEditing={onSubmitEditing}
           selectionColor={OBSIDIAN.emerald}
           style={[
             styles.textInput,
@@ -144,14 +152,14 @@ function ObsidianInput({
             )}
           </Pressable>
         )}
-      </View>
+      </Pressable>
       {error && (
-        <Animated.View entering={FadeInDown.duration(200)} style={styles.errorRow}>
+        <View style={styles.errorRow}>
           <AlertCircle size={13} color={OBSIDIAN.dangerText} />
           <Text style={styles.fieldErrorText}>{error}</Text>
-        </Animated.View>
+        </View>
       )}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -159,6 +167,11 @@ export default function SignupScreen() {
   const { signup } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const nameInputRef = useRef<TextInput | null>(null);
+  const emailInputRef = useRef<TextInput | null>(null);
+  const passwordInputRef = useRef<TextInput | null>(null);
+  const confirmPasswordInputRef = useRef<TextInput | null>(null);
 
   const buttonScale = useSharedValue(1);
   const shakeX = useSharedValue(0);
@@ -189,7 +202,7 @@ export default function SignupScreen() {
       await signup(data.name, data.email, data.password);
       router.replace('/(tabs)');
     } catch (err: any) {
-      setError(err.message || 'Sign up failed. Please try again.');
+      setError(err?.message || 'Sign up failed. Please try again.');
       triggerShake();
     } finally {
       setIsSubmitting(false);
@@ -222,7 +235,7 @@ export default function SignupScreen() {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -263,10 +276,10 @@ export default function SignupScreen() {
               style={[styles.card, formShakeStyle]}
             >
               {error && (
-                <Animated.View entering={FadeInDown.duration(250)} style={styles.errorBanner}>
+                <View style={styles.errorBanner}>
                   <AlertCircle size={16} color={OBSIDIAN.dangerText} />
                   <Text style={styles.errorBannerText}>{error}</Text>
-                </Animated.View>
+                </View>
               )}
 
               <Controller
@@ -274,6 +287,7 @@ export default function SignupScreen() {
                 name="name"
                 render={({ field: { onChange, onBlur, value } }) => (
                   <ObsidianInput
+                    inputRef={nameInputRef}
                     label="Full Name"
                     placeholder="Anas Khan"
                     value={value}
@@ -281,9 +295,11 @@ export default function SignupScreen() {
                     onBlur={onBlur}
                     autoCapitalize="words"
                     autoComplete="name"
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => emailInputRef.current?.focus()}
                     error={errors.name?.message}
                     icon={<User size={18} color={OBSIDIAN.textSecondary} />}
-                    delay={180}
                   />
                 )}
               />
@@ -293,6 +309,7 @@ export default function SignupScreen() {
                 name="email"
                 render={({ field: { onChange, onBlur, value } }) => (
                   <ObsidianInput
+                    inputRef={emailInputRef}
                     label="Email Address"
                     placeholder="you@example.com"
                     value={value}
@@ -301,9 +318,11 @@ export default function SignupScreen() {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoComplete="email"
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => passwordInputRef.current?.focus()}
                     error={errors.email?.message}
                     icon={<Mail size={18} color={OBSIDIAN.textSecondary} />}
-                    delay={240}
                   />
                 )}
               />
@@ -313,6 +332,7 @@ export default function SignupScreen() {
                 name="password"
                 render={({ field: { onChange, onBlur, value } }) => (
                   <ObsidianInput
+                    inputRef={passwordInputRef}
                     label="Password"
                     placeholder="Min. 8 characters"
                     value={value}
@@ -320,9 +340,11 @@ export default function SignupScreen() {
                     onBlur={onBlur}
                     secureTextEntry
                     autoComplete="password-new"
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
                     error={errors.password?.message}
                     icon={<Lock size={18} color={OBSIDIAN.textSecondary} />}
-                    delay={300}
                   />
                 )}
               />
@@ -332,24 +354,24 @@ export default function SignupScreen() {
                 name="confirmPassword"
                 render={({ field: { onChange, onBlur, value } }) => (
                   <ObsidianInput
+                    inputRef={confirmPasswordInputRef}
                     label="Confirm Password"
                     placeholder="Re-enter password"
                     value={value}
                     onChangeText={onChange}
                     onBlur={onBlur}
                     secureTextEntry
+                    returnKeyType="done"
+                    blurOnSubmit
+                    onSubmitEditing={() => handleSubmit(onSubmit, triggerShake)()}
                     error={errors.confirmPassword?.message}
                     icon={<Lock size={18} color={OBSIDIAN.textSecondary} />}
-                    delay={360}
                   />
                 )}
               />
 
               {/* Animated Gradient Submit Button */}
-              <Animated.View
-                entering={FadeInDown.delay(420).duration(500).springify()}
-                style={styles.buttonWrapper}
-              >
+              <View style={styles.buttonWrapper}>
                 <AnimatedPressable
                   disabled={isSubmitting}
                   onPressIn={() => {
@@ -377,7 +399,7 @@ export default function SignupScreen() {
                     )}
                   </LinearGradient>
                 </AnimatedPressable>
-              </Animated.View>
+              </View>
             </Animated.View>
 
             {/* Footer Link */}
