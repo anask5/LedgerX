@@ -61,7 +61,7 @@ export function useAppLock() {
     }
 
     const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Unlock ReceiptWise',
+      promptMessage: 'Unlock LedgerX',
       fallbackLabel: 'Use device PIN',
       cancelLabel: 'Cancel',
     });

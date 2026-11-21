@@ -222,7 +222,7 @@ export default function HomeScreen() {
                 <View style={styles.liveDot} />
                 <Text style={styles.vaultStatusText}>VAULT ACTIVE</Text>
               </View>
-              <Text style={styles.greeting}>ReceiptWise</Text>
+              <Text style={styles.greeting}>LedgerX</Text>
             </View>
 
             <Pressable

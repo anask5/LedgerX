@@ -453,7 +453,7 @@ export default function SettingsScreen() {
             </Pressable>
           </Animated.View>
 
-          <Text style={styles.version}>ReceiptWise v1.0.0 • Obsidian Vault</Text>
+          <Text style={styles.version}>LedgerX v1.0.0 • Fs0ciety</Text>
         </View>
       </ScrollView>
 

@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "ReceiptWise",
-    "slug": "receiptwise",
+    "name": "LedgerX",
+    "slug": "ledgerx",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "scheme": "receiptwise",
+    "userInterfaceStyle": "dark",
+    "scheme": "ledgerx",
     "plugins": [
       "expo-router",
       "expo-secure-store",
@@ -16,15 +16,15 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.receiptwise.app",
+      "bundleIdentifier": "com.ledgerx.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "ReceiptWise needs camera access to scan receipts",
-        "NSPhotoLibraryUsageDescription": "ReceiptWise needs photo library access to upload receipt images",
-        "NSFaceIDUsageDescription": "ReceiptWise uses Face ID to protect your data"
+        "NSCameraUsageDescription": "LedgerX needs camera access to scan receipts",
+        "NSPhotoLibraryUsageDescription": "LedgerX needs photo library access to upload receipt images",
+        "NSFaceIDUsageDescription": "LedgerX uses Face ID to protect your data"
       }
     },
     "android": {
-      "package": "com.receiptwise.app",
+      "package": "com.ledgerx.app",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#0F766E",

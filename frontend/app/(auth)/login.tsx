@@ -288,7 +288,7 @@ export default function LoginScreen() {
                 <Text style={styles.pillText}>ENCRYPTED & SYNCED</Text>
               </View>
 
-              <Text style={styles.title}>ReceiptWise</Text>
+              <Text style={styles.title}>LedgerX</Text>
               <Text style={styles.subtitle}>
                 Your receipts, warranties & spending—organized in one vault
               </Text>

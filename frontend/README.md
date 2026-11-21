@@ -1,6 +1,6 @@
-# ReceiptWise — Frontend (React Native + Expo)
+# LedgerX — Frontend (React Native + Expo)
 
-ReceiptWise is an AI-powered receipt tracking, warranty management, and proof-of-purchase sharing mobile application for Android and iOS.
+LedgerX is an AI-powered receipt tracking, warranty management, and proof-of-purchase sharing mobile application for Android and iOS.
 
 ---
 
