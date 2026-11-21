@@ -64,6 +64,32 @@ const OBSIDIAN = {
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
+function notify(title: string, message: string) {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}: ${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+}
+
+function openExternalUrl(url: string) {
+  if (Platform.OS === 'web') {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } else {
+    Linking.openURL(url);
+  }
+}
+
+function getInitials(name?: string | null): string {
+  return (name || 'User')
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.charAt(0))
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+}
+
 function ObsidianSwitch({
   value,
   onValueChange,
@@ -78,7 +104,7 @@ function ObsidianSwitch({
       damping: 16,
       stiffness: 260,
     });
-  }, [value]);
+  }, [value, thumbX]);
 
   const thumbStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: thumbX.value }],
@@ -167,6 +193,26 @@ function SettingRow({
   );
 }
 
+function SectionGroup({
+  label,
+  delay,
+  children,
+}: {
+  label: string;
+  delay: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <Animated.View
+      entering={FadeInDown.delay(delay).duration(500).springify()}
+      style={styles.section}
+    >
+      <Text style={styles.sectionLabel}>{label}</Text>
+      <View style={styles.groupCard}>{children}</View>
+    </Animated.View>
+  );
+}
+
 export default function SettingsScreen() {
   const { user, logout } = useAuth();
   const { isEnabled: isLockEnabled, toggleLock } = useAppLock();
@@ -176,22 +222,6 @@ export default function SettingsScreen() {
   const [isProcessingModal, setIsProcessingModal] = useState(false);
 
   const queryClient = useQueryClient();
-
-  const notify = (title: string, message: string) => {
-    if (Platform.OS === 'web') {
-      window.alert(`${title}: ${message}`);
-    } else {
-      Alert.alert(title, message);
-    }
-  };
-
-  const openExternalUrl = (url: string) => {
-    if (Platform.OS === 'web') {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } else {
-      Linking.openURL(url);
-    }
-  };
 
   const handleExportCSV = async () => {
     try {
@@ -204,7 +234,7 @@ export default function SettingsScreen() {
         notify('Export Ready', 'Your CSV export has been prepared for download.');
       }
     } catch (err: any) {
-      notify('Export Failed', err.message || 'Could not export data.');
+      notify('Export Failed', err?.message || 'Could not export data.');
     } finally {
       setIsExporting(false);
     }
@@ -241,40 +271,39 @@ export default function SettingsScreen() {
       const skipped = imported.skipped ? ` ${imported.skipped} row(s) were skipped.` : '';
       notify('Import complete', `${imported.imported} receipt(s) imported.${skipped}`);
     } catch (err: any) {
-      notify('Import Failed', err.message || 'Could not import this CSV file.');
+      notify('Import Failed', err?.message || 'Could not import this CSV file.');
     } finally {
       setIsImporting(false);
     }
   };
 
   const handleConfirmAction = async () => {
+    if (!confirmModal) return;
     setIsProcessingModal(true);
     try {
       if (confirmModal === 'delete') {
         await authApi.deleteAccount();
-        await logout();
-      } else if (confirmModal === 'logout') {
+        try {
+          await logout();
+        } catch {
+          // Account is already deleted on backend; ignore post-delete logout errors
+        }
+      } else {
         await logout();
       }
       setConfirmModal(null);
     } catch (err: any) {
       setConfirmModal(null);
-      notify('Error', err.message || 'Action failed. Please try again.');
+      notify('Error', err?.message || 'Action failed. Please try again.');
     } finally {
       setIsProcessingModal(false);
     }
   };
 
-  const initials = (user?.name || 'User')
-    .split(' ')
-    .map((part) => part.charAt(0))
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
+  const initials = getInitials(user?.name);
 
   return (
     <View style={styles.root}>
-      {/* Ambient Obsidian Glow */}
       <LinearGradient
         colors={['rgba(16, 185, 129, 0.2)', 'rgba(6, 182, 212, 0.06)', 'transparent']}
         start={{ x: 0.1, y: 0 }}
@@ -288,7 +317,6 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.responsiveContainer}>
-          {/* Header */}
           <Animated.View
             entering={FadeInDown.duration(500).springify().damping(17)}
             style={styles.header}
@@ -300,13 +328,16 @@ export default function SettingsScreen() {
             <Text style={styles.title}>Settings</Text>
           </Animated.View>
 
-          {/* Profile Hero Card */}
           <Animated.View
             entering={FadeInDown.delay(80).duration(550).springify().damping(17)}
             style={styles.profileCardWrapper}
           >
             <LinearGradient
-              colors={['rgba(16, 185, 129, 0.3)', 'rgba(6, 182, 212, 0.14)', 'rgba(255,255,255,0.06)']}
+              colors={[
+                'rgba(16, 185, 129, 0.3)',
+                'rgba(6, 182, 212, 0.14)',
+                'rgba(255,255,255,0.06)',
+              ]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.profileBorder}
@@ -341,97 +372,75 @@ export default function SettingsScreen() {
             </LinearGradient>
           </Animated.View>
 
-          {/* Security & Preferences Group */}
-          <Animated.View
-            entering={FadeInDown.delay(150).duration(500).springify()}
-            style={styles.section}
-          >
-            <Text style={styles.sectionLabel}>SECURITY & PREFERENCES</Text>
-            <View style={styles.groupCard}>
-              <SettingRow
-                title="App Lock"
-                description="Require authentication after 30s in background"
-                icon={<Lock size={18} color={OBSIDIAN.emerald} />}
-                iconBg={OBSIDIAN.emeraldBg}
-                onPress={() => toggleLock(!isLockEnabled)}
-                rightElement={
-                  <ObsidianSwitch value={isLockEnabled} onValueChange={toggleLock} />
-                }
-                isLast
-              />
-            </View>
-          </Animated.View>
+          <SectionGroup label="SECURITY & PREFERENCES" delay={150}>
+            <SettingRow
+              title="App Lock"
+              description="Require authentication after 30s in background"
+              icon={<Lock size={18} color={OBSIDIAN.emerald} />}
+              iconBg={OBSIDIAN.emeraldBg}
+              onPress={() => toggleLock(!isLockEnabled)}
+              rightElement={
+                <ObsidianSwitch value={isLockEnabled} onValueChange={toggleLock} />
+              }
+              isLast
+            />
+          </SectionGroup>
 
-          {/* Data Management Group */}
-          <Animated.View
-            entering={FadeInDown.delay(220).duration(500).springify()}
-            style={styles.section}
-          >
-            <Text style={styles.sectionLabel}>DATA & ORGANIZATION</Text>
-            <View style={styles.groupCard}>
-              <SettingRow
-                title={isExporting ? 'Preparing CSV…' : 'Export CSV'}
-                description="Download a spreadsheet of all your receipts"
-                icon={<Download size={18} color={OBSIDIAN.cyan} />}
-                iconBg="rgba(6, 182, 212, 0.12)"
-                onPress={handleExportCSV}
-                disabled={isExporting}
-                rightElement={
-                  isExporting ? (
-                    <ActivityIndicator size="small" color={OBSIDIAN.cyan} />
-                  ) : undefined
-                }
-              />
-              <SettingRow
-                title={isImporting ? 'Importing CSV…' : 'Import CSV'}
-                description="Bulk-import receipts from a .csv file"
-                icon={<Upload size={18} color={OBSIDIAN.indigo} />}
-                iconBg={OBSIDIAN.indigoBg}
-                onPress={handleImportCSV}
-                disabled={isImporting}
-                rightElement={
-                  isImporting ? (
-                    <ActivityIndicator size="small" color={OBSIDIAN.indigo} />
-                  ) : undefined
-                }
-              />
-              <SettingRow
-                title="Folders & Tags"
-                description="Organize your receipts into custom collections"
-                icon={<FolderOpen size={18} color={OBSIDIAN.violet} />}
-                iconBg={OBSIDIAN.violetBg}
-                onPress={() => router.push('/folders')}
-                isLast
-              />
-            </View>
-          </Animated.View>
+          <SectionGroup label="DATA & ORGANIZATION" delay={220}>
+            <SettingRow
+              title={isExporting ? 'Preparing CSV…' : 'Export CSV'}
+              description="Download a spreadsheet of all your receipts"
+              icon={<Download size={18} color={OBSIDIAN.cyan} />}
+              iconBg="rgba(6, 182, 212, 0.12)"
+              onPress={handleExportCSV}
+              disabled={isExporting}
+              rightElement={
+                isExporting ? (
+                  <ActivityIndicator size="small" color={OBSIDIAN.cyan} />
+                ) : undefined
+              }
+            />
+            <SettingRow
+              title={isImporting ? 'Importing CSV…' : 'Import CSV'}
+              description="Bulk-import receipts from a .csv file"
+              icon={<Upload size={18} color={OBSIDIAN.indigo} />}
+              iconBg={OBSIDIAN.indigoBg}
+              onPress={handleImportCSV}
+              disabled={isImporting}
+              rightElement={
+                isImporting ? (
+                  <ActivityIndicator size="small" color={OBSIDIAN.indigo} />
+                ) : undefined
+              }
+            />
+            <SettingRow
+              title="Folders & Tags"
+              description="Organize your receipts into custom collections"
+              icon={<FolderOpen size={18} color={OBSIDIAN.violet} />}
+              iconBg={OBSIDIAN.violetBg}
+              onPress={() => router.push('/folders')}
+              isLast
+            />
+          </SectionGroup>
 
-          {/* Legal & About Group */}
-          <Animated.View
-            entering={FadeInDown.delay(290).duration(500).springify()}
-            style={styles.section}
-          >
-            <Text style={styles.sectionLabel}>LEGAL & PRIVACY</Text>
-            <View style={styles.groupCard}>
-              <SettingRow
-                title="Privacy Policy"
-                description="How your receipt data is encrypted & protected"
-                icon={<ShieldCheck size={18} color={OBSIDIAN.textSecondary} />}
-                iconBg="rgba(255, 255, 255, 0.06)"
-                onPress={() => openExternalUrl('https://fs0ciety.in')}
-              />
-              <SettingRow
-                title="Terms of Service"
-                description="Usage guidelines and service terms"
-                icon={<FileText size={18} color={OBSIDIAN.textSecondary} />}
-                iconBg="rgba(255, 255, 255, 0.06)"
-                onPress={() => openExternalUrl('https://fs0ciety.in')}
-                isLast
-              />
-            </View>
-          </Animated.View>
+          <SectionGroup label="LEGAL & PRIVACY" delay={290}>
+            <SettingRow
+              title="Privacy Policy"
+              description="How your receipt data is encrypted & protected"
+              icon={<ShieldCheck size={18} color={OBSIDIAN.textSecondary} />}
+              iconBg="rgba(255, 255, 255, 0.06)"
+              onPress={() => openExternalUrl('https://fs0ciety.in')}
+            />
+            <SettingRow
+              title="Terms of Service"
+              description="Usage guidelines and service terms"
+              icon={<FileText size={18} color={OBSIDIAN.textSecondary} />}
+              iconBg="rgba(255, 255, 255, 0.06)"
+              onPress={() => openExternalUrl('https://fs0ciety.in')}
+              isLast
+            />
+          </SectionGroup>
 
-          {/* Account Actions */}
           <Animated.View
             entering={FadeInUp.delay(350).duration(500).springify()}
             style={styles.accountActions}
@@ -457,7 +466,6 @@ export default function SettingsScreen() {
         </View>
       </ScrollView>
 
-      {/* Obsidian Confirmation Modal */}
       <Modal
         visible={confirmModal !== null}
         transparent
@@ -560,7 +568,6 @@ const styles = StyleSheet.create({
     maxWidth: 640,
     alignSelf: 'center',
   },
-  /* Header */
   header: {
     marginBottom: 18,
   },
@@ -582,7 +589,6 @@ const styles = StyleSheet.create({
     color: OBSIDIAN.textPrimary,
     letterSpacing: -0.7,
   },
-  /* Profile Card */
   profileCardWrapper: {
     marginBottom: 24,
   },
@@ -660,7 +666,6 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     marginTop: 4,
   },
-  /* Sections & Grouped Cards */
   section: {
     marginBottom: 22,
   },
@@ -710,7 +715,6 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     marginTop: 2,
   },
-  /* Custom Animated Switch */
   switchTrack: {
     width: 46,
     height: 26,
@@ -723,7 +727,6 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
   },
-  /* Account Buttons */
   accountActions: {
     marginTop: 4,
     gap: 12,
@@ -766,7 +769,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 24,
   },
-  /* Modal */
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.78)',

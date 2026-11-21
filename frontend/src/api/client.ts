@@ -1,8 +1,9 @@
+import { Platform } from 'react-native';
 import { secureStore } from '../lib/secureStore';
 import type { ApiError } from './types';
 
 function normalizeApiUrl(rawUrl: string | undefined): string {
-  const fallback = 'http://localhost:8000/api/v1';
+  const fallback = 'https://receiptwise1.onrender.com/api/v1';
   const cleaned = (rawUrl || fallback).trim().replace(/\/+$/, '');
   if (/\/api\/v1$/i.test(cleaned)) {
     return cleaned;
@@ -13,16 +14,38 @@ function normalizeApiUrl(rawUrl: string | undefined): string {
 const API_URL = normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL);
 const IS_DEMO_MODE = process.env.EXPO_PUBLIC_DEMO_MODE === 'true';
 
-// Single-flight refresh: concurrent 401s wait on one refresh promise
 let refreshPromise: Promise<void> | null = null;
+
+function toApiError(
+  err: unknown,
+  fallbackMessage: string,
+  fallbackCode: string
+): ApiError {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const e = err as Record<string, unknown>;
+    return {
+      message: String(e.message || fallbackMessage),
+      code: String(e.code || fallbackCode),
+      ...(typeof e.field === 'string' ? { field: e.field } : {}),
+    };
+  }
+  return {
+    message: err instanceof Error && err.message ? err.message : fallbackMessage,
+    code: fallbackCode,
+  };
+}
 
 async function parseError(res: Response): Promise<ApiError> {
   try {
     const body = await res.json();
     return {
-      message: body.detail || body.message || `Request failed with status ${res.status}`,
+      message:
+        body?.detail ||
+        body?.message ||
+        body?.error ||
+        `Request failed with status ${res.status}`,
       code: String(res.status),
-      field: body.field,
+      ...(body?.field ? { field: String(body.field) } : {}),
     };
   } catch {
     return {
@@ -60,6 +83,156 @@ async function refreshAccessToken(): Promise<void> {
   return refreshPromise;
 }
 
+function sendMultipartWithXHR(
+  url: string,
+  formData: FormData,
+  headers: Record<string, string>,
+  timeoutMs: number
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.timeout = timeoutMs;
+
+    Object.entries(headers).forEach(([key, value]) => {
+      // Never set Content-Type manually for multipart FormData; XHR sets boundary
+      if (key.toLowerCase() !== 'content-type') {
+        xhr.setRequestHeader(key, value);
+      }
+    });
+
+    xhr.onload = () => {
+      const responseHeaders = new Headers();
+      const rawHeaders = xhr.getAllResponseHeaders() || '';
+      rawHeaders
+        .trim()
+        .split(/[\r\n]+/)
+        .forEach((line) => {
+          const idx = line.indexOf(':');
+          if (idx > 0) {
+            responseHeaders.append(
+              line.slice(0, idx).trim(),
+              line.slice(idx + 1).trim()
+            );
+          }
+        });
+
+      const bodyText =
+        typeof xhr.responseText === 'string' ? xhr.responseText : '';
+
+      resolve(
+        new Response(bodyText, {
+          status: xhr.status,
+          statusText: xhr.statusText || '',
+          headers: responseHeaders,
+        })
+      );
+    };
+
+    xhr.onerror = () => {
+      reject({
+        message: 'Upload network error on device',
+        code: 'UPLOAD_NETWORK_ERROR',
+      } satisfies ApiError);
+    };
+
+    xhr.ontimeout = () => {
+      reject({
+        message: `Receipt scan timed out after ${Math.round(timeoutMs / 1000)}s. Try a smaller image or retry.`,
+        code: 'TIMEOUT',
+      } satisfies ApiError);
+    };
+
+    xhr.send(formData as unknown as XMLHttpRequestBodyInit);
+  });
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  timeoutMessage: string,
+  networkCode: string
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw {
+        message: timeoutMessage,
+        code: 'TIMEOUT',
+      } satisfies ApiError;
+    }
+
+    const rawMsg = String(err?.message || '');
+    if (rawMsg.toLowerCase().includes('abort') && init.body instanceof FormData) {
+      try {
+        return await fetch(url, init);
+      } catch (retryErr: any) {
+        throw toApiError(
+          retryErr,
+          retryErr?.message || 'Upload network error on device',
+          networkCode
+        );
+      }
+    }
+
+    throw toApiError(err, err?.message || 'Network request failed', networkCode);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function runAuthorizedFetch<T>(
+  path: string,
+  performRequest: (token: string | null) => Promise<Response>,
+  opts: {
+    auth?: boolean;
+    retryFn: () => Promise<T>;
+  }
+): Promise<T> {
+  if (IS_DEMO_MODE) {
+    throw {
+      message: 'Demo mode is offline',
+      code: 'DEMO_MODE',
+    } satisfies ApiError;
+  }
+
+  const { auth = true, retryFn } = opts;
+  const token = auth ? await secureStore.getAccessToken() : null;
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const url = `${API_URL}${normalizedPath}`;
+
+  const res = await performRequest(token);
+
+  if (res.status === 401 && auth) {
+    const authError = await parseError(res);
+    try {
+      await refreshAccessToken();
+      return await retryFn();
+    } catch {
+      await secureStore.clearTokens();
+      throw authError;
+    }
+  }
+
+  if (!res.ok) {
+    throw await parseError(res);
+  }
+
+  if (res.status === 204) {
+    return undefined as T;
+  }
+
+  return res.json();
+}
+
 export const api = {
   baseUrl: API_URL,
 
@@ -67,117 +240,71 @@ export const api = {
     path: string,
     opts: RequestInit & { auth?: boolean } = {}
   ): Promise<T> {
-    if (IS_DEMO_MODE) {
-      throw new Error('Demo mode is offline');
-    }
-
     const { auth = true, ...fetchOpts } = opts;
-    const token = auth ? await secureStore.getAccessToken() : null;
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-    let res: Response;
-    try {
-      res = await fetch(`${API_URL}${normalizedPath}`, {
-        ...fetchOpts,
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          ...(fetchOpts.headers || {}),
-        },
-      });
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        throw {
-          message: 'Request timed out. The server may be waking up—please try again.',
-          code: 'TIMEOUT',
-        } satisfies ApiError;
+    return runAuthorizedFetch<T>(
+      path,
+      (token) =>
+        fetchWithTimeout(
+          `${API_URL}${path.startsWith('/') ? path : `/${path}`}`,
+          {
+            ...fetchOpts,
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              ...(fetchOpts.headers || {}),
+            },
+          },
+          20000,
+          'Request timed out. The server may be waking up—please try again.',
+          'NETWORK_ERROR'
+        ),
+      {
+        auth,
+        retryFn: () => api.request<T>(path, opts),
       }
-      throw {
-        message: err?.message || 'Network request failed',
-        code: 'NETWORK_ERROR',
-      } satisfies ApiError;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (res.status === 401 && auth) {
-      try {
-        await refreshAccessToken();
-        return api.request<T>(path, opts);
-      } catch {
-        await secureStore.clearTokens();
-        throw await parseError(res);
-      }
-    }
-
-    if (!res.ok) {
-      throw await parseError(res);
-    }
-
-    if (res.status === 204) return undefined as T;
-
-    return res.json();
+    );
   },
 
   /**
    * Upload a file via multipart form data.
+   * Uses XHR on native (Android/iOS) so React Native { uri, name, type } parts
+   * are never rejected by expo/fetch's FormDataPart validation.
    */
   async upload<T>(path: string, formData: FormData): Promise<T> {
-    if (IS_DEMO_MODE) {
-      throw new Error('Demo mode is offline');
-    }
+    const timeoutMs = 60000;
+    const timeoutMessage =
+      'Receipt scan timed out after 60s. Try a smaller image or retry.';
 
-    const token = await secureStore.getAccessToken();
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-    let res: Response;
-    try {
-      res = await fetch(`${API_URL}${normalizedPath}`, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
+    return runAuthorizedFetch<T>(
+      path,
+      (token) => {
+        const headers: Record<string, string> = {
           Accept: 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          // Do not set Content-Type manually so React Native/Web sets the multipart boundary
-        },
-        body: formData,
-      });
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        throw {
-          message: 'Receipt scan timed out after 60s. Try a smaller image or retry.',
-          code: 'TIMEOUT',
-        } satisfies ApiError;
+        };
+        const url = `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
+
+        if (Platform.OS !== 'web') {
+          return sendMultipartWithXHR(url, formData, headers, timeoutMs);
+        }
+
+        return fetchWithTimeout(
+          url,
+          {
+            method: 'POST',
+            headers,
+            body: formData,
+          },
+          timeoutMs,
+          timeoutMessage,
+          'UPLOAD_NETWORK_ERROR'
+        );
+      },
+      {
+        auth: true,
+        retryFn: () => api.upload<T>(path, formData),
       }
-      throw {
-        message: err?.message || 'Upload network error on device',
-        code: 'UPLOAD_NETWORK_ERROR',
-      } satisfies ApiError;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (res.status === 401) {
-      try {
-        await refreshAccessToken();
-        return api.upload<T>(path, formData);
-      } catch {
-        await secureStore.clearTokens();
-        throw await parseError(res);
-      }
-    }
-
-    if (!res.ok) {
-      throw await parseError(res);
-    }
-
-    return res.json();
+    );
   },
 };
