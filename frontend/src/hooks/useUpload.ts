@@ -32,6 +32,15 @@ function getErrorMessage(err: any): string {
   return err.message || err.detail || err.error || 'Upload failed';
 }
 
+function extractUploadPayload(rawResult: any) {
+  const root = rawResult?.data ?? rawResult;
+  const receiptObj = root?.receipt ?? root;
+  const id = receiptObj?.id ?? receiptObj?._id ?? root?.receipt_id ?? root?.id;
+  const duplicate = Boolean(root?.duplicate ?? receiptObj?.duplicate);
+  const existingId = root?.existing_id ?? receiptObj?.existing_id;
+  return { id, duplicate, existingId };
+}
+
 async function appendFileToForm(
   form: FormData,
   rawUri: string,
@@ -81,8 +90,9 @@ export function useUpload() {
       try {
         setError(null);
         setState('optimizing');
-        const optimized = await optimizeImage(normalizeNativeUri(uri));
-        const fileUri = optimized?.uri || uri;
+        const normalizedUri = normalizeNativeUri(uri);
+        const optimized = await optimizeImage(normalizedUri);
+        const fileUri = normalizeNativeUri(optimized?.uri || normalizedUri);
 
         setState('uploading');
         const form = new FormData();
@@ -90,22 +100,24 @@ export function useUpload() {
         form.append('source', source);
 
         const rawResult: any = await receiptsApi.upload(form);
-        const payload = rawResult?.data ?? rawResult;
+        console.log('[useUpload] image upload response:', JSON.stringify(rawResult));
 
-        if (!payload?.id) {
+        const { id, duplicate, existingId } = extractUploadPayload(rawResult);
+        if (!id) {
           throw new Error('Server did not return a receipt ID after upload.');
         }
 
-        if (payload.duplicate && payload.existing_id) {
-          handleDuplicate(payload.existing_id);
+        if (duplicate && existingId) {
+          handleDuplicate(existingId);
           setState('done');
           return;
         }
 
         queryClient.invalidateQueries({ queryKey: ['receipts'] });
         setState('done');
-        router.replace(`/processing/${payload.id}`);
+        router.replace(`/processing/${id}`);
       } catch (err: any) {
+        console.error('[useUpload] image upload failed:', err);
         setState('error');
         setError(getErrorMessage(err));
       }
@@ -249,22 +261,24 @@ export function useUpload() {
       form.append('source', 'pdf');
 
       const rawResult: any = await receiptsApi.upload(form);
-      const payload = rawResult?.data ?? rawResult;
+      console.log('[useUpload] pdf upload response:', JSON.stringify(rawResult));
 
-      if (!payload?.id) {
+      const { id, duplicate, existingId } = extractUploadPayload(rawResult);
+      if (!id) {
         throw new Error('Server did not return a receipt ID after PDF upload.');
       }
 
-      if (payload.duplicate && payload.existing_id) {
-        handleDuplicate(payload.existing_id);
+      if (duplicate && existingId) {
+        handleDuplicate(existingId);
         setState('done');
         return;
       }
 
       queryClient.invalidateQueries({ queryKey: ['receipts'] });
       setState('done');
-      router.replace(`/processing/${payload.id}`);
+      router.replace(`/processing/${id}`);
     } catch (err: any) {
+      console.error('[useUpload] pdf upload failed:', err);
       setState('error');
       setError(getErrorMessage(err));
     }
